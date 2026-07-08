@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "1.1.4";
+  const APP_VERSION = "1.1.5";
   const STORAGE_KEY = "byd-han-lev-mileage-data-v1";
   const LARGE_JUMP_KM = 2000;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -1302,12 +1302,9 @@
     let tracking = false;
     let lockedAxis = "";
     let lastDeltaX = 0;
+    let suppressNextClick = false;
 
     content.addEventListener("touchstart", (event) => {
-      if (isInteractiveSwipeTarget(event.target)) {
-        tracking = false;
-        return;
-      }
       const touch = event.changedTouches[0];
       startX = touch.clientX;
       startY = touch.clientY;
@@ -1317,6 +1314,18 @@
       lastDeltaX = 0;
       track.classList.remove("settling");
     }, { passive: true });
+
+    content.addEventListener("click", (event) => {
+      if (!suppressNextClick) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      suppressNextClick = false;
+    }, true);
 
     content.addEventListener("touchmove", (event) => {
       if (!tracking) {
@@ -1330,6 +1339,7 @@
         lockedAxis = Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "x" : "y";
         if (lockedAxis === "x") {
           track.classList.add("dragging");
+          blurFocusedField();
         }
       }
       if (lockedAxis !== "x") {
@@ -1351,6 +1361,12 @@
       const wasHorizontal = lockedAxis === "x";
       lockedAxis = "";
       track.classList.remove("dragging");
+      if (wasHorizontal && Math.abs(lastDeltaX) > 12) {
+        suppressNextClick = true;
+        setTimeout(() => {
+          suppressNextClick = false;
+        }, 420);
+      }
       if (!wasHorizontal) {
         applyPagerPosition(true);
         return;
@@ -1368,8 +1384,11 @@
     }
   }
 
-  function isInteractiveSwipeTarget(target) {
-    return Boolean(target && target.closest("button, input, textarea, select, summary, label, a"));
+  function blurFocusedField() {
+    const active = document.activeElement;
+    if (active && active.matches && active.matches("input, textarea, select")) {
+      active.blur();
+    }
   }
 
   function switchTabByOffset(offset) {

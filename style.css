@@ -808,7 +808,7 @@ button,
 summary,
 input,
 textarea {
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 
 .mobile-app-shell {
