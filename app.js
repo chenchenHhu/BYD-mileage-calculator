@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "1.1.3";
+  const APP_VERSION = "1.1.4";
   const STORAGE_KEY = "byd-han-lev-mileage-data-v1";
   const LARGE_JUMP_KM = 2000;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -51,6 +51,7 @@
 
     const handleResize = debounce(() => {
       syncViewportSize();
+      applyPagerPosition(false);
       if (hasUsableData()) {
         renderCharts();
       }
@@ -918,23 +919,33 @@
     return TABS.some((tab) => tab.id === state.activeTab) ? state.activeTab : "home";
   }
 
+  function getActiveTabIndex() {
+    return Math.max(0, TABS.findIndex((tab) => tab.id === getActiveTabId()));
+  }
+
   function renderApp() {
     const profile = state.vehicleProfile;
     const stats = calculateCurrentStats();
     state.activeTab = getActiveTabId();
+    const activeIndex = getActiveTabIndex();
     dom.app.innerHTML = `
       <div class="mobile-app-shell">
         ${renderAppHeader(profile, stats)}
-        <main class="app-content" data-active-tab="${escapeHtml(state.activeTab)}">
-          ${renderActiveTab(profile, stats)}
+        <main class="app-content" data-active-tab="${escapeHtml(state.activeTab)}" data-active-index="${activeIndex}">
+          <div class="pager-track">
+            ${TABS.map((tab) => `
+              <section class="pager-page" data-page-tab="${tab.id}" aria-hidden="${state.activeTab === tab.id ? "false" : "true"}">
+                ${renderTabContent(tab.id, profile, stats)}
+              </section>
+            `).join("")}
+          </div>
         </main>
         ${renderBottomTabs()}
       </div>
     `;
     bindAppEvents();
-    if (state.activeTab === "charts") {
-      requestAnimationFrame(renderCharts);
-    }
+    applyPagerPosition(false);
+    requestAnimationFrame(renderCharts);
   }
 
   function renderAppHeader(profile, stats) {
@@ -950,14 +961,14 @@
     `;
   }
 
-  function renderActiveTab(profile, stats) {
-    if (state.activeTab === "records") {
+  function renderTabContent(tabId, profile, stats) {
+    if (tabId === "records") {
       return renderRecordsTabHtml();
     }
-    if (state.activeTab === "charts") {
+    if (tabId === "charts") {
       return renderChartsTabHtml(stats);
     }
-    if (state.activeTab === "settings") {
+    if (tabId === "settings") {
       return renderSettingsTabHtml(profile);
     }
     return renderHomeTabHtml(profile, stats);
@@ -1271,16 +1282,17 @@
       });
     });
 
-    bindSwipeNavigation();
+    bindPagerNavigation();
 
     dom.app.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", handleActionClick);
     });
   }
 
-  function bindSwipeNavigation() {
+  function bindPagerNavigation() {
     const content = dom.app.querySelector(".app-content");
-    if (!content) {
+    const track = dom.app.querySelector(".pager-track");
+    if (!content || !track) {
       return;
     }
 
@@ -1288,6 +1300,8 @@
     let startY = 0;
     let startTime = 0;
     let tracking = false;
+    let lockedAxis = "";
+    let lastDeltaX = 0;
 
     content.addEventListener("touchstart", (event) => {
       if (isInteractiveSwipeTarget(event.target)) {
@@ -1299,22 +1313,59 @@
       startY = touch.clientY;
       startTime = Date.now();
       tracking = true;
+      lockedAxis = "";
+      lastDeltaX = 0;
+      track.classList.remove("settling");
     }, { passive: true });
 
-    content.addEventListener("touchend", (event) => {
+    content.addEventListener("touchmove", (event) => {
+      if (!tracking) {
+        return;
+      }
+      const touch = event.changedTouches[0];
+      const scale = getPagerScale();
+      const deltaX = (touch.clientX - startX) / scale;
+      const deltaY = (touch.clientY - startY) / scale;
+      if (!lockedAxis && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
+        lockedAxis = Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "x" : "y";
+        if (lockedAxis === "x") {
+          track.classList.add("dragging");
+        }
+      }
+      if (lockedAxis !== "x") {
+        return;
+      }
+      event.preventDefault();
+      lastDeltaX = resistedPagerDelta(deltaX);
+      applyPagerPosition(false, lastDeltaX);
+    }, { passive: false });
+
+    content.addEventListener("touchend", () => settlePagerDrag(), { passive: true });
+    content.addEventListener("touchcancel", () => settlePagerDrag(), { passive: true });
+
+    function settlePagerDrag() {
       if (!tracking) {
         return;
       }
       tracking = false;
-      const touch = event.changedTouches[0];
-      const deltaX = touch.clientX - startX;
-      const deltaY = touch.clientY - startY;
-      const elapsed = Date.now() - startTime;
-      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25 || elapsed > 900) {
+      const wasHorizontal = lockedAxis === "x";
+      lockedAxis = "";
+      track.classList.remove("dragging");
+      if (!wasHorizontal) {
+        applyPagerPosition(true);
         return;
       }
-      switchTabByOffset(deltaX < 0 ? 1 : -1);
-    }, { passive: true });
+
+      const width = getPagerWidth();
+      const elapsed = Math.max(1, Date.now() - startTime);
+      const velocity = Math.abs(lastDeltaX) / elapsed;
+      const shouldTurn = Math.abs(lastDeltaX) > width * 0.22 || velocity > 0.55;
+      if (!shouldTurn) {
+        applyPagerPosition(true);
+        return;
+      }
+      switchTabByOffset(lastDeltaX < 0 ? 1 : -1);
+    }
   }
 
   function isInteractiveSwipeTarget(target) {
@@ -1325,6 +1376,7 @@
     const currentIndex = TABS.findIndex((tab) => tab.id === state.activeTab);
     const nextIndex = currentIndex + offset;
     if (nextIndex < 0 || nextIndex >= TABS.length) {
+      applyPagerPosition(true);
       return;
     }
     setActiveTab(TABS[nextIndex].id);
@@ -1335,10 +1387,62 @@
       return;
     }
     if (state.activeTab === tabId) {
+      applyPagerPosition(true);
       return;
     }
     state.activeTab = tabId;
-    render();
+    updatePagerState();
+    applyPagerPosition(true);
+    if (state.activeTab === "charts") {
+      requestAnimationFrame(renderCharts);
+    }
+  }
+
+  function updatePagerState() {
+    const content = dom.app.querySelector(".app-content");
+    if (content) {
+      content.dataset.activeTab = state.activeTab;
+      content.dataset.activeIndex = String(getActiveTabIndex());
+    }
+    dom.app.querySelectorAll("[data-tab]").forEach((button) => {
+      const isActive = button.dataset.tab === state.activeTab;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-current", isActive ? "page" : "false");
+    });
+    dom.app.querySelectorAll("[data-page-tab]").forEach((page) => {
+      page.setAttribute("aria-hidden", page.dataset.pageTab === state.activeTab ? "false" : "true");
+    });
+  }
+
+  function applyPagerPosition(animate = true, deltaX = 0) {
+    const track = dom.app && dom.app.querySelector(".pager-track");
+    if (!track) {
+      return;
+    }
+    const width = getPagerWidth();
+    const x = -getActiveTabIndex() * width + deltaX;
+    track.classList.toggle("settling", animate);
+    if (!animate) {
+      track.classList.remove("settling");
+    }
+    track.style.transform = `translate3d(${x}px, 0, 0)`;
+  }
+
+  function resistedPagerDelta(deltaX) {
+    const index = getActiveTabIndex();
+    const isPastStart = index === 0 && deltaX > 0;
+    const isPastEnd = index === TABS.length - 1 && deltaX < 0;
+    return isPastStart || isPastEnd ? deltaX * 0.32 : deltaX;
+  }
+
+  function getPagerWidth() {
+    const content = dom.app && dom.app.querySelector(".app-content");
+    return content ? Math.max(1, content.clientWidth) : 1;
+  }
+
+  function getPagerScale() {
+    const scale = Number(getComputedStyle(document.documentElement).getPropertyValue("--app-scale"));
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
   }
 
   function handleQuickRecordSubmit(event) {
