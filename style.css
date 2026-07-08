@@ -781,31 +781,57 @@ a {
 html,
 body,
 #app {
-  min-height: 100%;
+  width: 100%;
+  height: var(--app-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: pan-y;
 }
 
 body {
-  min-height: 100svh;
-  overflow-x: hidden;
+  position: fixed;
+  inset: 0;
   background: #f6f8f7;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+button,
+summary,
+input,
+textarea {
+  touch-action: manipulation;
 }
 
 .mobile-app-shell {
   position: relative;
-  width: min(100%, 480px);
-  min-height: 100svh;
-  margin: 0 auto;
+  display: grid;
+  grid-template-rows:
+    calc(52px + env(safe-area-inset-top))
+    minmax(0, 1fr)
+    calc(64px + env(safe-area-inset-bottom));
+  width: 100%;
+  height: var(--app-height, 100dvh);
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
   background: #f6f8f7;
 }
 
 .app-topbar {
-  position: fixed;
-  top: 0;
-  left: 50%;
+  position: relative;
   z-index: 18;
-  width: min(100%, 480px);
-  height: calc(52px + env(safe-area-inset-top));
-  transform: translateX(-50%);
+  width: 100%;
+  height: auto;
+  transform: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -866,8 +892,11 @@ body {
 }
 
 .app-content {
-  min-height: 100svh;
-  padding: calc(66px + env(safe-area-inset-top)) 14px calc(86px + env(safe-area-inset-bottom));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 10px 12px;
 }
 
 .tab-page {
@@ -876,18 +905,16 @@ body {
 }
 
 .home-tab {
-  min-height: calc(100svh - 152px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  min-height: 0;
   align-content: start;
 }
 
 .bottom-tabs {
-  position: fixed;
-  left: 50%;
-  bottom: 0;
+  position: relative;
   z-index: 18;
-  width: min(100%, 480px);
+  width: 100%;
   min-height: calc(64px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
+  transform: none;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
@@ -1366,5 +1393,12 @@ body {
 @media (min-width: 431px) {
   .remaining-number strong {
     font-size: 72px;
+  }
+}
+
+@media (min-width: 720px) and (hover: hover) and (pointer: fine) {
+  .mobile-app-shell {
+    width: min(100%, 480px);
+    margin: 0 auto;
   }
 }

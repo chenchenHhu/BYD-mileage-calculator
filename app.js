@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "1.1.1";
+  const APP_VERSION = "1.1.2";
   const STORAGE_KEY = "byd-han-lev-mileage-data-v1";
   const LARGE_JUMP_KM = 2000;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -31,6 +31,7 @@
   init();
 
   function init() {
+    syncViewportSize();
     registerServiceWorker();
     loadData();
     bindGlobalEvents();
@@ -48,17 +49,33 @@
       }
     });
 
-    window.addEventListener("resize", debounce(() => {
+    const handleResize = debounce(() => {
+      syncViewportSize();
       if (hasUsableData()) {
         renderCharts();
       }
-    }, 200));
+    }, 120);
+
+    window.addEventListener("resize", handleResize);
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+      window.visualViewport.addEventListener("scroll", handleResize);
+    }
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeModal();
       }
     });
+  }
+
+  function syncViewportSize() {
+    const viewport = window.visualViewport;
+    const height = Math.max(320, Math.round((viewport && viewport.height) || window.innerHeight || document.documentElement.clientHeight));
+    const width = Math.max(320, Math.round((viewport && viewport.width) || window.innerWidth || document.documentElement.clientWidth));
+    document.documentElement.style.setProperty("--app-height", `${height}px`);
+    document.documentElement.style.setProperty("--app-width", `${width}px`);
   }
 
   function registerServiceWorker() {
