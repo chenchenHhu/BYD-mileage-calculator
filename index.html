@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="description" content="比亚迪汉LEV里程计数器：离线记录总里程，计算任意连续12个月里程窗口。">
+  <title>比亚迪汉LEV里程计数器</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input id="jsonImportInput" class="sr-only" type="file" accept="application/json,.json">
+  <noscript>
+    <section class="noscript">
+      <h1>比亚迪汉LEV里程计数器</h1>
+      <p>这个小工具需要启用浏览器 JavaScript 才能记录、计算和导出数据。</p>
+    </section>
+  </noscript>
+  <script src="app.js" defer></script>
+</body>
+</html>
