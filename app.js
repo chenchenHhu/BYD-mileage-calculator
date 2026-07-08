@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "1.1.2";
+  const APP_VERSION = "1.1.3";
   const STORAGE_KEY = "byd-han-lev-mileage-data-v1";
   const LARGE_JUMP_KM = 2000;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -72,10 +72,38 @@
 
   function syncViewportSize() {
     const viewport = window.visualViewport;
-    const height = Math.max(320, Math.round((viewport && viewport.height) || window.innerHeight || document.documentElement.clientHeight));
-    const width = Math.max(320, Math.round((viewport && viewport.width) || window.innerWidth || document.documentElement.clientWidth));
-    document.documentElement.style.setProperty("--app-height", `${height}px`);
-    document.documentElement.style.setProperty("--app-width", `${width}px`);
+    const layoutHeight = Math.max(320, Math.round((viewport && viewport.height) || window.innerHeight || document.documentElement.clientHeight));
+    const layoutWidth = Math.max(320, Math.round((viewport && viewport.width) || window.innerWidth || document.documentElement.clientWidth));
+    const coarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    const screenShortEdge = getScreenShortEdge();
+    const looksLikeZoomedOutPhone = coarsePointer && layoutWidth > 600 && layoutHeight > layoutWidth * 1.2;
+    const appWidth = looksLikeZoomedOutPhone
+      ? clamp(screenShortEdge || 390, 360, 430)
+      : layoutWidth;
+    const appScale = layoutWidth / appWidth;
+    const appHeight = layoutHeight / appScale;
+
+    document.documentElement.style.setProperty("--layout-height", `${layoutHeight}px`);
+    document.documentElement.style.setProperty("--layout-width", `${layoutWidth}px`);
+    document.documentElement.style.setProperty("--app-height", `${appHeight}px`);
+    document.documentElement.style.setProperty("--app-width", `${appWidth}px`);
+    document.documentElement.style.setProperty("--app-scale", appScale.toFixed(4));
+    document.documentElement.classList.toggle("viewport-scaled", appScale > 1.15);
+  }
+
+  function getScreenShortEdge() {
+    const values = [];
+    if (window.screen) {
+      values.push(window.screen.width, window.screen.availWidth);
+    }
+    const valid = values
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value >= 320 && value <= 520);
+    return valid.length ? Math.min(...valid) : 0;
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
 
   function registerServiceWorker() {
@@ -1239,14 +1267,78 @@
 
     dom.app.querySelectorAll("[data-tab]").forEach((button) => {
       button.addEventListener("click", () => {
-        state.activeTab = button.dataset.tab;
-        render();
+        setActiveTab(button.dataset.tab);
       });
     });
+
+    bindSwipeNavigation();
 
     dom.app.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", handleActionClick);
     });
+  }
+
+  function bindSwipeNavigation() {
+    const content = dom.app.querySelector(".app-content");
+    if (!content) {
+      return;
+    }
+
+    let startX = 0;
+    let startY = 0;
+    let startTime = 0;
+    let tracking = false;
+
+    content.addEventListener("touchstart", (event) => {
+      if (isInteractiveSwipeTarget(event.target)) {
+        tracking = false;
+        return;
+      }
+      const touch = event.changedTouches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      startTime = Date.now();
+      tracking = true;
+    }, { passive: true });
+
+    content.addEventListener("touchend", (event) => {
+      if (!tracking) {
+        return;
+      }
+      tracking = false;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      const elapsed = Date.now() - startTime;
+      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25 || elapsed > 900) {
+        return;
+      }
+      switchTabByOffset(deltaX < 0 ? 1 : -1);
+    }, { passive: true });
+  }
+
+  function isInteractiveSwipeTarget(target) {
+    return Boolean(target && target.closest("button, input, textarea, select, summary, label, a"));
+  }
+
+  function switchTabByOffset(offset) {
+    const currentIndex = TABS.findIndex((tab) => tab.id === state.activeTab);
+    const nextIndex = currentIndex + offset;
+    if (nextIndex < 0 || nextIndex >= TABS.length) {
+      return;
+    }
+    setActiveTab(TABS[nextIndex].id);
+  }
+
+  function setActiveTab(tabId) {
+    if (!TABS.some((tab) => tab.id === tabId)) {
+      return;
+    }
+    if (state.activeTab === tabId) {
+      return;
+    }
+    state.activeTab = tabId;
+    render();
   }
 
   function handleQuickRecordSubmit(event) {
