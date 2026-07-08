@@ -2,11 +2,12 @@
   "name": "比亚迪汉LEV里程计数器",
   "short_name": "汉LEV里程",
   "description": "离线记录总里程，计算任意连续12个月里程窗口。",
-  "start_url": "./index.html",
+  "id": "./",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f6f7f4",
-  "theme_color": "#0f766e",
+  "background_color": "#f6f8f7",
+  "theme_color": "#f6f8f7",
   "orientation": "portrait-primary",
   "icons": [
     {

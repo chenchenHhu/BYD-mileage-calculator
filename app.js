@@ -1,14 +1,21 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "1.0.0";
+  const APP_VERSION = "1.1.1";
   const STORAGE_KEY = "byd-han-lev-mileage-data-v1";
   const LARGE_JUMP_KM = 2000;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const TABS = [
+    { id: "home", label: "首页" },
+    { id: "records", label: "记录" },
+    { id: "charts", label: "图表" },
+    { id: "settings", label: "设置" }
+  ];
 
   const state = {
     vehicleProfile: null,
     records: [],
+    activeTab: "home",
     wizardStep: "start",
     wizardDraft: null,
     importMode: "app",
@@ -693,6 +700,7 @@
         return;
       }
       seedExampleData();
+      state.activeTab = "home";
       render();
       showToast("示例数据已创建。你可以在数据管理里导出或在设置里修改。");
     });
@@ -712,12 +720,17 @@
             ${fieldHtml("purchaseDateText", "购车时间", "text", profile.purchaseDateText, false, "例如 2025-07-15、2025-07、2025年7月左右")}
             ${fieldHtml("purchaseOdometerKm", "购车时里程 km", "number", profile.purchaseOdometerKm, false)}
             ${fieldHtml("safetyBufferKm", "安全余量 km", "number", profile.safetyBufferKm, false)}
-            ${fieldHtml("warningKm", "预警线 km", "number", profile.warningKm, false)}
-            ${fieldHtml("highRiskKm", "高风险线 km", "number", profile.highRiskKm, false)}
-            ${fieldHtml("modelVersion", "车型配置", "text", profile.modelVersion, false)}
-            ${fieldHtml("plateNumber", "车牌号", "text", profile.plateNumber, false)}
-            ${textareaHtml("warrantyNote", "保险/质保备注", profile.warrantyNote)}
-            ${textareaHtml("otherNote", "其他备注", profile.otherNote)}
+            <details class="form-details">
+              <summary>更多设置</summary>
+              <div class="grid-form">
+                ${fieldHtml("warningKm", "预警线 km", "number", profile.warningKm, false)}
+                ${fieldHtml("highRiskKm", "高风险线 km", "number", profile.highRiskKm, false)}
+                ${fieldHtml("modelVersion", "车型配置", "text", profile.modelVersion, false)}
+                ${fieldHtml("plateNumber", "车牌号", "text", profile.plateNumber, false)}
+                ${textareaHtml("warrantyNote", "保险/质保备注", profile.warrantyNote)}
+                ${textareaHtml("otherNote", "其他备注", profile.otherNote)}
+              </div>
+            </details>
           </div>
           <div class="button-row">
             <button class="primary-button" type="submit">下一步：首次里程记录</button>
@@ -834,6 +847,7 @@
       state.vehicleProfile = profile;
       state.records = [record];
       saveData();
+      state.activeTab = "home";
       state.wizardStep = "start";
       state.wizardDraft = null;
       render();
@@ -855,112 +869,194 @@
     `;
   }
 
+  function getActiveTabId() {
+    return TABS.some((tab) => tab.id === state.activeTab) ? state.activeTab : "home";
+  }
+
   function renderApp() {
     const profile = state.vehicleProfile;
     const stats = calculateCurrentStats();
+    state.activeTab = getActiveTabId();
     dom.app.innerHTML = `
-      <div class="app-shell">
-        <section class="hero-screen">
-          ${renderDashboardHtml(profile, stats)}
-          ${renderQuickEntryHtml()}
-          <p class="scroll-hint">向下滑动查看更多统计、图表和导出功能。</p>
-        </section>
-        <section class="content-stack">
-          ${renderChartsSectionHtml()}
-          ${renderHistoryHtml()}
-          ${renderRiskPredictionHtml(stats)}
-          ${renderDataManagementHtml()}
-          ${renderSettingsHtml(profile)}
-        </section>
+      <div class="mobile-app-shell">
+        ${renderAppHeader(profile, stats)}
+        <main class="app-content" data-active-tab="${escapeHtml(state.activeTab)}">
+          ${renderActiveTab(profile, stats)}
+        </main>
+        ${renderBottomTabs()}
       </div>
     `;
     bindAppEvents();
-    requestAnimationFrame(renderCharts);
+    if (state.activeTab === "charts") {
+      requestAnimationFrame(renderCharts);
+    }
+  }
+
+  function renderAppHeader(profile, stats) {
+    const risk = stats.risk || calculateRiskLevel(null, profile);
+    return `
+      <header class="app-topbar">
+        <div class="topbar-title">
+          <span>汉LEV里程</span>
+          <strong>${escapeHtml(profile.vehicleName)}</strong>
+        </div>
+        <div class="topbar-status risk-${risk.className}">${escapeHtml(risk.label)}</div>
+      </header>
+    `;
+  }
+
+  function renderActiveTab(profile, stats) {
+    if (state.activeTab === "records") {
+      return renderRecordsTabHtml();
+    }
+    if (state.activeTab === "charts") {
+      return renderChartsTabHtml(stats);
+    }
+    if (state.activeTab === "settings") {
+      return renderSettingsTabHtml(profile);
+    }
+    return renderHomeTabHtml(profile, stats);
+  }
+
+  function renderBottomTabs() {
+    return `
+      <nav class="bottom-tabs" aria-label="主导航">
+        ${TABS.map((tab) => `
+          <button class="tab-button ${state.activeTab === tab.id ? "active" : ""}" type="button" data-tab="${tab.id}" aria-current="${state.activeTab === tab.id ? "page" : "false"}">
+            <span>${escapeHtml(tab.label)}</span>
+          </button>
+        `).join("")}
+      </nav>
+    `;
+  }
+
+  // Tab 只改变布局，里程计算仍复用原有数据函数。
+  function renderHomeTabHtml(profile, stats) {
+    return `
+      <section class="tab-page home-tab">
+        ${renderDashboardHtml(profile, stats)}
+        ${renderQuickEntryHtml()}
+      </section>
+    `;
   }
 
   function renderDashboardHtml(profile, stats) {
     const risk = stats.risk || calculateRiskLevel(null, profile);
     const recommendedMessage = Number.isFinite(stats.recommendedAvailableKm) && stats.recommendedAvailableKm < 0
-      ? '<div class="dashboard-message">建议停止非必要用车，先保留安全余量。</div>'
+      ? '<p class="dashboard-message">建议先暂停非必要用车，保留安全余量。</p>'
       : "";
-    const historical = stats.historicalMax;
-    const historicalText = historical
-      ? `${formatKm(historical.result.windowMileage)}`
-      : "数据不足";
-    const historicalWindow = historical
-      ? `${historical.result.startDate} 至 ${historical.result.endDate}`
-      : "继续记录后可计算";
+    const usedText = `${formatNumber(stats.windowMileage)} / ${formatNumber(profile.limitKm)} km`;
 
     return `
       <section class="dashboard-panel risk-${risk.className}">
-        <div class="top-line">
-          <div class="vehicle-title">
-            <h1>${escapeHtml(profile.vehicleName)}</h1>
-            <p>任意连续12个月滑动窗口</p>
-          </div>
-          <div class="risk-badge">${escapeHtml(risk.label)}</div>
+        <div class="dashboard-head">
+          <p class="remaining-label">最近12个月还能跑</p>
+          <span class="risk-badge">${escapeHtml(risk.label)}</span>
         </div>
         <div class="remaining-block">
-          <p class="remaining-label">最近12个月剩余额度</p>
           <div class="remaining-number">
             <strong>${formatNumber(stats.remainingKm)}</strong>
             <span>km</span>
           </div>
           ${recommendedMessage}
         </div>
-        <div class="metric-grid">
-          ${metricHtml("12个月已用", formatKm(stats.windowMileage))}
-          ${metricHtml("厂家上限", formatKm(profile.limitKm))}
-          ${metricHtml("建议可用", formatKm(stats.recommendedAvailableKm))}
-          ${metricHtml("计算方式", stats.calculationMethod)}
-          ${metricHtml("最近记录", stats.latest ? stats.latest.date : "无")}
-          ${metricHtml("当前总里程", stats.latest ? formatKm(stats.latest.odometerKm) : "无")}
-          ${metricHtml("历史最高窗口", historicalText)}
-          ${metricHtml("最高窗口日期", historicalWindow)}
+        <div class="dashboard-facts">
+          <div>
+            <span>已用</span>
+            <strong>${escapeHtml(usedText)}</strong>
+          </div>
+          <div>
+            <span>建议可用</span>
+            <strong>${escapeHtml(formatKm(stats.recommendedAvailableKm))}</strong>
+          </div>
+          <div>
+            <span>状态</span>
+            <strong>${escapeHtml(risk.label)}</strong>
+          </div>
+          <div>
+            <span>计算方式</span>
+            <strong>${escapeHtml(stats.calculationMethod)}</strong>
+          </div>
         </div>
       </section>
     `;
   }
 
   function renderQuickEntryHtml() {
-    const recent = sortRecords(state.records).slice(-3).reverse();
     const latest = sortRecords(state.records).at(-1);
+    const latestText = latest
+      ? `上次 ${latest.date}，${Math.round(latest.odometerKm)} km`
+      : "还没有记录";
     return `
       <section class="entry-panel">
-        <div class="section-head">
+        <div class="section-head compact">
           <div>
             <h2>新增记录</h2>
-            <p>输入车机显示的总里程</p>
+            <p>${escapeHtml(latestText)}</p>
           </div>
         </div>
         <form id="quickRecordForm" class="entry-form">
           ${fieldHtml("date", "日期", "date", todayIso(), true)}
-          ${fieldHtml("odometerKm", "总里程 km", "number", "", true, latest ? `上次 ${latest.odometerKm}` : "例如 27413")}
-          ${textareaHtml("note", "备注", "")}
-          <button class="primary-button" type="submit">保存记录</button>
+          ${fieldHtml("odometerKm", "总里程 km", "number", "", true, latest ? `上次 ${Math.round(latest.odometerKm)}` : "例如 27413")}
+          <details class="note-details">
+            <summary>备注</summary>
+            ${textareaHtml("note", "备注", "")}
+          </details>
+          <button class="primary-button save-button" type="submit">保存记录</button>
         </form>
-        <div class="recent-list" aria-label="最近3条记录">
-          ${recent.length ? recent.map((record) => `
-            <div class="recent-item">
-              <span>${escapeHtml(record.date)}</span>
-              <strong>${formatKm(record.odometerKm)}</strong>
-            </div>
-          `).join("") : '<div class="empty-state">暂无记录</div>'}
-        </div>
+      </section>
+    `;
+  }
+
+  function renderRecordsTabHtml() {
+    return `
+      <section class="tab-page records-tab">
+        ${renderHistoryHtml()}
+      </section>
+    `;
+  }
+
+  function renderChartsTabHtml(stats) {
+    return `
+      <section class="tab-page charts-tab">
+        ${renderChartsSectionHtml()}
+        ${renderRiskPredictionHtml(stats)}
+      </section>
+    `;
+  }
+
+  function renderSettingsTabHtml(profile) {
+    return `
+      <section class="tab-page settings-tab">
+        ${renderSettingsHtml(profile)}
+        ${renderDataManagementHtml()}
+        <section class="panel privacy-panel">
+          <h2>隐私和备份</h2>
+          <p class="notice">所有数据只保存在当前浏览器本地。换手机、清缓存或更换浏览器前，请先导出 JSON 备份。</p>
+        </section>
       </section>
     `;
   }
 
   function renderChartsSectionHtml() {
     const averages = calculateDailyAverages();
+    const historical = calculateHistoricalMaxWindow();
+    const chartHint = state.records.length < 2
+      ? '<div class="empty-state">至少两条记录后会形成折线趋势。</div>'
+      : "";
+    const historicalWindow = historical
+      ? `${historical.result.startDate} 至 ${historical.result.endDate}`
+      : "数据不足";
+
     return `
       <section class="panel" id="chartsSection">
         <div class="section-head">
           <div>
-            <h2>趋势图</h2>
-            <p>图表只在本机浏览器中绘制，不联网。</p>
+            <h2>图表</h2>
+            <p>总里程与最近12个月累计里程</p>
           </div>
         </div>
+        ${chartHint}
         <div class="chart-grid">
           <div class="chart-wrap">
             <h3>总里程折线图</h3>
@@ -971,12 +1067,13 @@
             <canvas id="windowChart" width="720" height="320"></canvas>
           </div>
           <div class="chart-wrap">
-            <h3>日均里程趋势</h3>
+            <h3>统计</h3>
             <div class="mini-stats">
-              ${smallStatHtml("近7天", averageText(averages.avg7))}
-              ${smallStatHtml("近30天", averageText(averages.avg30))}
-              ${smallStatHtml("近90天", averageText(averages.avg90))}
-              ${smallStatHtml("自首条以来", averageText(averages.allTime))}
+              ${smallStatHtml("近7天日均", averageText(averages.avg7))}
+              ${smallStatHtml("近30天日均", averageText(averages.avg30))}
+              ${smallStatHtml("近90天日均", averageText(averages.avg90))}
+              ${smallStatHtml("历史最大12个月", historical ? formatKm(historical.result.windowMileage) : "数据不足")}
+              ${smallStatHtml("最大窗口", historicalWindow)}
             </div>
           </div>
         </div>
@@ -987,35 +1084,38 @@
   function renderHistoryHtml() {
     const sorted = sortRecords(state.records);
     const reversed = [...sorted].reverse();
+    const recordsHtml = reversed.length ? reversed.map((record) => {
+      const index = sorted.findIndex((item) => item.id === record.id);
+      const previous = index > 0 ? sorted[index - 1] : null;
+      const delta = previous ? record.odometerKm - previous.odometerKm : null;
+      return `
+        <article class="record-card">
+          <div class="record-main">
+            <div class="record-copy">
+              <span class="record-date">${escapeHtml(record.date)}</span>
+              <strong>${formatKm(record.odometerKm)}</strong>
+              <span class="record-delta">较上次 ${delta === null ? "-" : `+${formatKm(delta)}`}</span>
+            </div>
+            <div class="record-actions">
+              <button class="icon-button" type="button" data-action="edit-record" data-id="${escapeHtml(record.id)}">编辑</button>
+              <button class="danger-button" type="button" data-action="delete-record" data-id="${escapeHtml(record.id)}">删除</button>
+            </div>
+          </div>
+          ${record.note ? `<p class="record-note">${escapeHtml(record.note)}</p>` : ""}
+        </article>
+      `;
+    }).join("") : '<div class="empty-state">暂无记录</div>';
+
     return `
       <section class="panel" id="historySection">
         <div class="section-head">
           <div>
-            <h2>历史记录</h2>
-            <p>按日期倒序显示，编辑或删除后会自动重算。</p>
+            <h2>记录</h2>
+            <p>最近记录按日期倒序排列</p>
           </div>
         </div>
         <div class="history-list">
-          ${reversed.map((record) => {
-            const index = sorted.findIndex((item) => item.id === record.id);
-            const previous = index > 0 ? sorted[index - 1] : null;
-            const delta = previous ? record.odometerKm - previous.odometerKm : null;
-            return `
-              <article class="record-card">
-                <div class="record-main">
-                  <div>
-                    <strong>${formatKm(record.odometerKm)}</strong>
-                    <span>${escapeHtml(record.date)} · 较上次 ${delta === null ? "-" : formatKm(delta)}</span>
-                  </div>
-                  <div class="record-actions">
-                    <button class="icon-button" type="button" data-action="edit-record" data-id="${escapeHtml(record.id)}" title="编辑记录">编辑</button>
-                    <button class="icon-button" type="button" data-action="delete-record" data-id="${escapeHtml(record.id)}" title="删除记录">删除</button>
-                  </div>
-                </div>
-                ${record.note ? `<p class="record-note">${escapeHtml(record.note)}</p>` : ""}
-              </article>
-            `;
-          }).join("")}
+          ${recordsHtml}
         </div>
       </section>
     `;
@@ -1056,10 +1156,9 @@
         <div class="section-head">
           <div>
             <h2>数据管理</h2>
-            <p>备份、恢复和导出给 Excel 或 GPT。</p>
+            <p>备份、恢复和导出</p>
           </div>
         </div>
-        <p class="notice"><strong>定期备份：</strong>浏览器清缓存、换手机或换浏览器都可能导致本地数据丢失。建议经常导出 JSON 备份。</p>
         <div class="data-actions">
           <button class="primary-button" type="button" data-action="export-json">导出 JSON 备份</button>
           <button class="secondary-button" type="button" data-action="import-json">导入 JSON 恢复</button>
@@ -1073,36 +1172,60 @@
 
   function renderSettingsHtml(profile) {
     return `
-      <section class="panel">
-        <div class="section-head">
-          <div>
-            <h2>设置</h2>
-            <p>修改后会立即保存到本机并重新计算。</p>
+      <form id="settingsForm" class="settings-form">
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <h2>车辆档案</h2>
+              <p>车辆和购车信息</p>
+            </div>
           </div>
-        </div>
-        <form id="settingsForm" class="grid-form settings-grid">
-          ${fieldHtml("vehicleName", "车辆名称", "text", profile.vehicleName, true)}
-          ${fieldHtml("limitKm", "12个月上限 km", "number", profile.limitKm, true)}
-          ${fieldHtml("warningKm", "预警线 km", "number", profile.warningKm, true)}
-          ${fieldHtml("highRiskKm", "高风险线 km", "number", profile.highRiskKm, true)}
-          ${fieldHtml("safetyBufferKm", "安全余量 km", "number", profile.safetyBufferKm, true)}
-          ${fieldHtml("purchaseDateText", "购车时间", "text", profile.purchaseDateText, false)}
-          ${fieldHtml("purchaseOdometerKm", "购车时里程 km", "number", profile.purchaseOdometerKm, false)}
-          ${fieldHtml("modelVersion", "车型配置", "text", profile.modelVersion, false)}
-          ${fieldHtml("plateNumber", "车牌号", "text", profile.plateNumber, false)}
-          ${textareaHtml("warrantyNote", "保险/质保备注", profile.warrantyNote)}
-          ${textareaHtml("otherNote", "其他备注", profile.otherNote)}
-          <div class="field full">
-            <button class="primary-button" type="submit">保存设置</button>
+          <div class="grid-form settings-grid">
+            ${fieldHtml("vehicleName", "车辆名称", "text", profile.vehicleName, true)}
+            ${fieldHtml("purchaseDateText", "购车时间", "text", profile.purchaseDateText, false)}
+            ${fieldHtml("purchaseOdometerKm", "购车时里程 km", "number", profile.purchaseOdometerKm, false)}
+            ${fieldHtml("modelVersion", "车型配置", "text", profile.modelVersion, false)}
+            ${fieldHtml("plateNumber", "车牌号", "text", profile.plateNumber, false)}
           </div>
+        </section>
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <h2>里程规则</h2>
+              <p>12个月窗口、预警线和安全余量</p>
+            </div>
+          </div>
+          <div class="grid-form settings-grid">
+            ${fieldHtml("limitKm", "12个月上限 km", "number", profile.limitKm, true)}
+            ${fieldHtml("warningKm", "预警线 km", "number", profile.warningKm, true)}
+            ${fieldHtml("highRiskKm", "高风险线 km", "number", profile.highRiskKm, true)}
+            ${fieldHtml("safetyBufferKm", "安全余量 km", "number", profile.safetyBufferKm, true)}
+            ${textareaHtml("warrantyNote", "保险/质保备注", profile.warrantyNote)}
+            ${textareaHtml("otherNote", "其他备注", profile.otherNote)}
+          </div>
+        </section>
+        <button class="primary-button save-button" type="submit">保存设置</button>
         </form>
-      </section>
     `;
   }
 
   function bindAppEvents() {
-    dom.app.querySelector("#quickRecordForm").addEventListener("submit", handleQuickRecordSubmit);
-    dom.app.querySelector("#settingsForm").addEventListener("submit", handleSettingsSubmit);
+    const quickRecordForm = dom.app.querySelector("#quickRecordForm");
+    if (quickRecordForm) {
+      quickRecordForm.addEventListener("submit", handleQuickRecordSubmit);
+    }
+
+    const settingsForm = dom.app.querySelector("#settingsForm");
+    if (settingsForm) {
+      settingsForm.addEventListener("submit", handleSettingsSubmit);
+    }
+
+    dom.app.querySelectorAll("[data-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.activeTab = button.dataset.tab;
+        render();
+      });
+    });
 
     dom.app.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", handleActionClick);
@@ -1272,6 +1395,7 @@
       state.vehicleProfile = result.vehicleProfile;
       state.records = result.records;
       saveData();
+      state.activeTab = "home";
       state.wizardStep = "start";
       state.wizardDraft = null;
       render();
@@ -1481,10 +1605,10 @@ ${rows}
   function renderCharts() {
     const records = sortRecords(state.records);
     const profile = state.vehicleProfile;
-    const odometerPoints = records.map((record) => ({
+    const odometerPoints = records.length >= 2 ? records.map((record) => ({
       date: record.date,
       value: record.odometerKm
-    }));
+    })) : [];
     const windowPoints = records
       .map((record) => {
         const result = calculateWindowMileage(record, records, profile);
@@ -1574,8 +1698,29 @@ ${rows}
       context.fillText(Math.round(value).toString(), margin.left - 8, y);
     }
 
-    references.forEach((reference) => {
-      const y = yScale(reference.value);
+    const referenceLabels = references
+      .map((reference) => ({ ...reference, y: yScale(reference.value), labelY: yScale(reference.value) }))
+      .sort((a, b) => a.y - b.y);
+    for (let index = 1; index < referenceLabels.length; index += 1) {
+      referenceLabels[index].labelY = Math.max(referenceLabels[index].labelY, referenceLabels[index - 1].labelY + 17);
+    }
+    const labelBottom = margin.top + plotHeight - 8;
+    const overflow = referenceLabels.length ? referenceLabels.at(-1).labelY - labelBottom : 0;
+    if (overflow > 0) {
+      referenceLabels.forEach((reference) => {
+        reference.labelY -= overflow;
+      });
+    }
+    const labelTop = margin.top + 8;
+    const underflow = referenceLabels.length ? labelTop - referenceLabels[0].labelY : 0;
+    if (underflow > 0) {
+      referenceLabels.forEach((reference) => {
+        reference.labelY += underflow;
+      });
+    }
+
+    referenceLabels.forEach((reference) => {
+      const y = reference.y;
       context.save();
       context.setLineDash([5, 5]);
       context.strokeStyle = reference.color;
@@ -1585,8 +1730,9 @@ ${rows}
       context.stroke();
       context.restore();
       context.fillStyle = reference.color;
-      context.textAlign = "left";
-      context.fillText(reference.label, margin.left + 4, y - 8);
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      context.fillText(reference.label, width - margin.right - 4, reference.labelY);
     });
 
     context.strokeStyle = options.lineColor || "#0f766e";
@@ -1640,7 +1786,7 @@ ${rows}
   }
 
   function fieldHtml(name, label, type, value, required, placeholder = "") {
-    const inputMode = type === "number" ? ' inputmode="decimal" min="0" step="1"' : "";
+    const inputMode = type === "number" ? ' inputmode="numeric" min="0" step="1"' : "";
     return `
       <div class="field">
         <label for="${escapeHtml(name)}">${escapeHtml(label)}</label>

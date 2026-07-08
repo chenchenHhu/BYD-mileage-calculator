@@ -1,4 +1,4 @@
-const CACHE_NAME = "byd-mileage-tracker-v1.0.0";
+const CACHE_NAME = "byd-mileage-tracker-v1.1.1";
 const APP_SHELL = [
   "./",
   "./index.html",
